@@ -1,13 +1,13 @@
 import { Router } from 'express';
 
 import { register, login, getProfile, updateProfile } from '../controllers/authController';
-import auth from '../middleware/auth';
+import { verifyCognitoToken } from '../middleware/cognitoAuth';
 
 const router = Router();
 
-router.post('/register', register);
+router.post('/register', verifyCognitoToken, register);
 router.post('/login', login);
-router.get('/user/profile', auth, getProfile);
-router.put('/user/profile', auth, updateProfile);
+router.get('/user/profile', verifyCognitoToken, getProfile);
+router.put('/user/profile', verifyCognitoToken, updateProfile);
 
 export default router;

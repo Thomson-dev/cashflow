@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import User from '../models/User';
+import { PutCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { dynamoDb, TABLES } from '../config/dynamodb';
+import { User, UserProfile } from '../models/User';
 
 // Extend Express Request interface to include 'user'
 declare global {
@@ -12,127 +12,143 @@ declare global {
   }
 }
 
-// Register a new user
+// Register a new user (Cognito handles actual registration)
 export const register = async (req: Request, res: Response) => {
   try {
-    const {
-      name,
-      email,
-      password,
+    const { 
+      email, 
+      firstName, 
+      lastName, 
       phoneNumber,
-      currency,
-      whatsappEnabled,
-      isSetupComplete,
       businessName,
       businessType,
-      location,
-      startingCapital,
+      businessLocation,
       monthlyRevenue,
-      monthlyExpenses,
-      primaryGoal,
-      targetGrowth,
-      whatsappAlerts,
-      emailReports,
-      currentBalance
+      teamSize,
+      startingBalance,
+      expectedMonthlyExpense,
+      expectedMonthlyIncome,
+      financialGoals,
+      notificationPreference
     } = req.body;
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists with this email' });
-    }
-    if (!businessName || !startingCapital) {
-      return res.status(400).json({ error: 'businessName and startingCapital are required' });
-    }
-    const salt = await bcrypt.genSalt(10);
+    // Debug: Log the entire user object from token
+    console.log('🔍 Full req.user object:', JSON.stringify(req.user, null, 2));
     
+    // Get userId from JWT token - try different possible fields
+    const userId = req.user?.sub || req.user?.cognito?.username || req.user?.username;
+    
+    console.log('👤 Extracted userId:', userId);
 
-    const user = new User({
-      name,
+    if (!userId) {
+      return res.status(400).json({ 
+        error: 'User ID not found in token',
+        debug: {
+          userObject: req.user,
+          availableFields: Object.keys(req.user || {})
+        }
+      });
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const now = new Date().toISOString();
+    const user: User = {
+      userId,
       email,
-      password,
+      firstName,
+      lastName,
       phoneNumber,
-      currency,
-      whatsappEnabled,
-      isSetupComplete,
-      businessSetup: {
-        businessName,
-        businessType,
-        location,
-        startingCapital,
-        monthlyRevenue,
-        monthlyExpenses,
-        primaryGoal,
-        targetGrowth,
-        whatsappAlerts,
-        emailReports
-      },
-      currentBalance: currentBalance ?? startingCapital
-    });
+      businessName,
+      businessType,
+      businessLocation,
+      monthlyRevenue,
+      teamSize,
+      startingBalance,
+      expectedMonthlyExpense,
+      expectedMonthlyIncome,
+      financialGoals,
+      notificationPreference,
+      createdAt: now,
+      updatedAt: now
+    };
 
-    await user.save();
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
+    await dynamoDb.send(new PutCommand({
+      TableName: TABLES.USERS,
+      Item: user,
+      ConditionExpression: 'attribute_not_exists(userId)'
+    }));
+
     res.status(201).json({
-      message: 'User registered successfully',
-      token,
+      message: 'User profile created successfully',
       user: {
-        id: user._id,
-        name: user.name,
+        userId: user.userId,
         email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
         phoneNumber: user.phoneNumber,
-        currency: user.currency,
-        whatsappEnabled: user.whatsappEnabled,
-        isSetupComplete: user.isSetupComplete,
-        businessSetup: user.businessSetup,
-        currentBalance: user.currentBalance
+        businessName: user.businessName,
+        businessType: user.businessType,
+        startingBalance: user.startingBalance
       }
     });
   } catch (error: any) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      return res.status(400).json({ error: 'User already exists' });
+    }
     res.status(500).json({ error: error.message });
   }
 };
 
-// Login user
+// Login user (Cognito handles actual login)
 export const login = async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid email or password' });
-    }
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(400).json({ error: 'Invalid email or password' });
-    }
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
-    res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        businessName: user.businessSetup?.businessName,
-        currentBalance: user.currentBalance
-      }
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
+  // This endpoint is no longer needed as Cognito handles authentication
+  // But keeping it for compatibility - it can return user info
+  res.json({
+    message: 'Please use Cognito authentication. This endpoint is deprecated.',
+    info: 'Use AWS Cognito SDK to authenticate users'
+  });
 };
 
 // Get user profile
 export const getProfile = async (req: Request & { user?: any }, res: Response) => {
   try {
-    const user = await User.findById(req.user?._id).select('-password');
-    res.json({ user });
+    const userId = req.user?.sub;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID not found in token' });
+    }
+
+    const result = await dynamoDb.send(new GetCommand({
+      TableName: TABLES.USERS,
+      Key: { userId }
+    }));
+
+    if (!result.Item) {
+      return res.status(404).json({ error: 'User profile not found' });
+    }
+
+    const userProfile: UserProfile = {
+      userId: result.Item.userId,
+      email: result.Item.email,
+      firstName: result.Item.firstName,
+      lastName: result.Item.lastName,
+      phoneNumber: result.Item.phoneNumber,
+      businessName: result.Item.businessName,
+      businessType: result.Item.businessType,
+      businessLocation: result.Item.businessLocation,
+      monthlyRevenue: result.Item.monthlyRevenue,
+      teamSize: result.Item.teamSize,
+      startingBalance: result.Item.startingBalance,
+      expectedMonthlyExpense: result.Item.expectedMonthlyExpense,
+      expectedMonthlyIncome: result.Item.expectedMonthlyIncome,
+      financialGoals: result.Item.financialGoals,
+      notificationPreference: result.Item.notificationPreference
+    };
+
+    res.json({ user: userProfile });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -141,14 +157,82 @@ export const getProfile = async (req: Request & { user?: any }, res: Response) =
 // Update user profile
 export const updateProfile = async (req: Request & { user?: any }, res: Response) => {
   try {
-    const updates = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.user?._id,
-      updates,
-      { new: true, runValidators: true }
-    ).select('-password');
-    res.json({ message: 'Profile updated successfully', user });
+    const userId = req.user?.sub;
+    const { 
+      firstName, 
+      lastName, 
+      phoneNumber,
+      businessName,
+      businessType,
+      businessLocation,
+      monthlyRevenue,
+      teamSize,
+      startingBalance,
+      expectedMonthlyExpense,
+      expectedMonthlyIncome,
+      financialGoals,
+      notificationPreference
+    } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID not found in token' });
+    }
+
+    const now = new Date().toISOString();
+    
+    await dynamoDb.send(new UpdateCommand({
+      TableName: TABLES.USERS,
+      Key: { userId },
+      UpdateExpression: `SET 
+        firstName = :firstName, 
+        lastName = :lastName, 
+        phoneNumber = :phoneNumber,
+        businessName = :businessName,
+        businessType = :businessType,
+        businessLocation = :businessLocation,
+        monthlyRevenue = :monthlyRevenue,
+        teamSize = :teamSize,
+        startingBalance = :startingBalance,
+        expectedMonthlyExpense = :expectedMonthlyExpense,
+        expectedMonthlyIncome = :expectedMonthlyIncome,
+        financialGoals = :financialGoals,
+        notificationPreference = :notificationPreference,
+        updatedAt = :updatedAt`,
+      ExpressionAttributeValues: {
+        ':firstName': firstName,
+        ':lastName': lastName,
+        ':phoneNumber': phoneNumber,
+        ':businessName': businessName,
+        ':businessType': businessType,
+        ':businessLocation': businessLocation,
+        ':monthlyRevenue': monthlyRevenue,
+        ':teamSize': teamSize,
+        ':startingBalance': startingBalance,
+        ':expectedMonthlyExpense': expectedMonthlyExpense,
+        ':expectedMonthlyIncome': expectedMonthlyIncome,
+        ':financialGoals': financialGoals,
+        ':notificationPreference': notificationPreference,
+        ':updatedAt': now
+      },
+      ConditionExpression: 'attribute_exists(userId)'
+    }));
+
+    res.json({ 
+      message: 'Profile updated successfully',
+      user: { 
+        userId, 
+        firstName, 
+        lastName, 
+        phoneNumber, 
+        businessName,
+        businessType,
+        startingBalance
+      }
+    });
   } catch (error: any) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      return res.status(404).json({ error: 'User not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 };

@@ -1,13 +1,14 @@
 import { Router } from 'express';
-import auth from '../middleware/auth';
+import { verifyCognitoToken } from '../middleware/cognitoAuth';
 import * as transactionController from '../controllers/transactionController';
 
 const router = Router();
 
-router.post('/', auth, transactionController.createTransaction);
-// router.get('/', auth, transactionController.getTransactions);
-// router.get('/:id', auth, transactionController.getTransaction);
-// router.put('/:id', auth, transactionController.updateTransaction);
-// router.delete('/:id', auth, transactionController.deleteTransaction);
+router.post('/', verifyCognitoToken, transactionController.createTransaction);
+router.get('/', verifyCognitoToken, transactionController.getTransactions);
+router.get('/period/:period', verifyCognitoToken, transactionController.getTransactionsByPeriod);
+router.delete('/:id', verifyCognitoToken, transactionController.deleteTransaction);
+// router.get('/:id', verifyCognitoToken, transactionController.getTransaction);
+// router.put('/:id', verifyCognitoToken, transactionController.updateTransaction);
 
 export default router;

@@ -1,10 +1,12 @@
 import express, { Request, Response } from 'express';
 import dotenv from "dotenv";
-import { connectDB } from "./config/db";
+import fileUploadRoute from './routes/fileUploadRoute';
+import { verifyCognitoToken } from './middleware/cognitoAuth';
 
 import cors from 'cors';
 import authRoutes from './routes/authRoutes';
 import transactionRoutes from './routes/transactionRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -20,24 +22,11 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection middleware
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (error) {
-    console.error('Database connection failed in middleware:', error);
-    res.status(503).json({ 
-      error: 'Database service unavailable. Please try again later.',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-// Routes - These will only execute after database is connected
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/file-upload', fileUploadRoute);
 
 // Test Routes
 app.get('/', (req: Request, res: Response) => {
@@ -66,30 +55,29 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
+// Protected endpoint example
+app.get('/api/protected', verifyCognitoToken, (req: any, res: Response) => {
+  res.json({ 
+    message: 'This is a protected endpoint!',
+    user: {
+      id: req.user.sub,
+      email: req.user.email
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Database status endpoint
 app.get('/api/db-status', async (req: Request, res: Response) => {
-  try {
-    await connectDB();
-    
-    const mongoose = require('mongoose');
-    const dbState = mongoose.connection.readyState;
-    const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
-    
-    res.json({
-      success: true,
-      database: {
-        state: states[dbState],
-        name: mongoose.connection.name || 'unknown',
-        host: mongoose.connection.host || 'unknown'
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error: any) {
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
+  res.json({
+    success: true,
+    database: {
+      type: 'DynamoDB',
+      region: process.env.AWS_REGION || 'us-east-1',
+      status: 'connected'
+    },
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Global error handler
@@ -114,19 +102,10 @@ app.use('*', (req: Request, res: Response) => {
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 3000;
   
-  const startServer = async () => {
-    try {
-      await connectDB();
-      app.listen(PORT, () => {
-        console.log(`🚀 Server running on http://localhost:${PORT}`);
-      });
-    } catch (error) {
-      console.error('Failed to start server:', error);
-      process.exit(1);
-    }
-  };
-  
-  startServer();
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`📊 Using DynamoDB in region: ${process.env.AWS_REGION || 'us-east-1'}`);
+  });
 }
 
 // Export for Vercel
