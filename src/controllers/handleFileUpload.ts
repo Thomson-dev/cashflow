@@ -39,10 +39,18 @@ function validateFile(fileName: string): { isValid: boolean; error?: string; fil
 
 // Function to create presigned URL
 export async function getPresignedUrl(userId: string, fileName: string) {
+  console.log('🔄 Starting presigned URL generation');
+  console.log('👤 User ID:', userId);
+  console.log('📄 Original filename:', fileName);
+  
   try {
     // Validate file
+    console.log('🔍 Validating file...');
     const validation = validateFile(fileName);
+    console.log('✅ Validation result:', validation);
+    
     if (!validation.isValid) {
+      console.log('❌ File validation failed:', validation.error);
       throw new Error(validation.error);
     }
 
@@ -52,6 +60,12 @@ export async function getPresignedUrl(userId: string, fileName: string) {
     const uniqueFileName = `${timestamp}_${sanitizedFileName}`;
     const s3Key = `users/${userId}/uploads/${uniqueFileName}`;
     const fileId = randomUUID();
+    
+    console.log('🏷️  Generated metadata:');
+    console.log('   - Unique filename:', uniqueFileName);
+    console.log('   - S3 key:', s3Key);
+    console.log('   - File ID:', fileId);
+    console.log('   - Bucket:', process.env.S3_BUCKET_NAME);
     
     const command = new PutObjectCommand({
       Bucket: process.env.S3_BUCKET_NAME,
@@ -64,9 +78,14 @@ export async function getPresignedUrl(userId: string, fileName: string) {
       }
     });
 
+    console.log('🔗 Generating presigned URL...');
     const url = await getSignedUrl(s3, command, { expiresIn: 300 }); // 5 minutes
+    console.log('✅ Presigned URL generated successfully');
+    console.log('🔗 URL length:', url.length);
+    console.log('🔗 URL preview:', url.substring(0, 100) + '...');
     
     // Create database record
+    console.log('💾 Creating database record...');
     const now = new Date().toISOString();
     const fileUpload: FileUpload = {
       fileId,
@@ -84,20 +103,36 @@ export async function getPresignedUrl(userId: string, fileName: string) {
       updatedAt: now
     };
     
+    console.log('📝 File upload record:', JSON.stringify(fileUpload, null, 2));
+    
     await dynamoDb.send(new PutCommand({
       TableName: TABLES.FILE_UPLOADS,
       Item: fileUpload
     }));
     
-    return {
+    console.log('✅ Database record created successfully');
+    
+    const result = {
       uploadUrl: url,
       fileName: uniqueFileName,
       originalName: fileName,
       s3Key,
       fileId
     };
-  } catch (error) {
-    console.error('Error generating presigned URL:', error);
+    
+    console.log('🎉 Presigned URL generation completed');
+    console.log('📤 Returning result:', JSON.stringify(result, null, 2));
+    
+    return result;
+  } catch (error: any) {
+    console.error('💥 Error generating presigned URL:');
+    console.error('   - Error type:', error?.constructor?.name || 'Unknown');
+    console.error('   - Error message:', error?.message || 'No message');
+    console.error('   - Error stack:', error?.stack || 'No stack');
+    console.error('   - User ID:', userId);
+    console.error('   - Filename:', fileName);
+    console.error('   - S3 Bucket:', process.env.S3_BUCKET_NAME);
+    console.error('   - AWS Region:', process.env.AWS_REGION);
     throw error;
   }
 }

@@ -6,30 +6,69 @@ const router = express.Router();
 
 // Route to get presigned URL for file upload
 router.post('/presigned-url', verifyCognitoToken, async (req, res) => {
+    console.log('🚀 === PRESIGNED URL REQUEST START ===');
+    console.log('📥 Request body:', JSON.stringify(req.body, null, 2));
+    console.log('👤 User from token:', JSON.stringify(req.user, null, 2));
+    console.log('🌍 Environment variables:');
+    console.log('   - S3_BUCKET_NAME:', process.env.S3_BUCKET_NAME);
+    console.log('   - AWS_REGION:', process.env.AWS_REGION);
+    
     try {
         const { fileName } = req.body;
         
+        console.log('🔍 Validating input...');
+        console.log('   - fileName:', fileName);
+        console.log('   - fileName type:', typeof fileName);
+        
         // Validate input
         if (!fileName) {
+            console.log('❌ Validation failed: fileName is required');
             return res.status(400).json({ 
                 error: 'fileName is required in request body' 
             });
         }
 
         // Get userId from Cognito user (sub is the user ID)
-        const userId = req.user.sub;
+        const userId = req.user?.sub;
+        console.log('👤 Extracted userId:', userId);
         
+        if (!userId) {
+            console.log('❌ No userId found in token');
+            return res.status(400).json({ 
+                error: 'User ID not found in token' 
+            });
+        }
+        
+        console.log('✅ Input validation passed, calling getPresignedUrl...');
         const result = await getPresignedUrl(userId, fileName);
         
-        return res.json({
+        console.log('✅ getPresignedUrl completed successfully');
+        const response = {
             success: true,
             data: result
-        });
-    } catch (error) {
-        console.error('Error in presigned URL route:', error);
+        };
+        
+        console.log('📤 Sending response:', JSON.stringify(response, null, 2));
+        console.log('🎉 === PRESIGNED URL REQUEST END ===');
+        
+        return res.json(response);
+    } catch (error: any) {
+        console.error('💥 === PRESIGNED URL REQUEST ERROR ===');
+        console.error('❌ Error in presigned URL route:');
+        console.error('   - Error type:', error?.constructor?.name || 'Unknown');
+        console.error('   - Error message:', error?.message || 'No message');
+        console.error('   - Error stack:', error?.stack || 'No stack');
+        console.error('   - Request body:', JSON.stringify(req.body, null, 2));
+        console.error('   - User:', JSON.stringify(req.user, null, 2));
+        console.error('💥 === ERROR END ===');
+        
         return res.status(500).json({ 
             error: 'Failed to generate upload URL',
-            message: error instanceof Error ? error.message : 'Unknown error'
+            message: error instanceof Error ? error.message : 'Unknown error',
+            debug: {
+                errorType: error?.constructor?.name || 'Unknown',
+                timestamp: new Date().toISOString()
+            }
         });
     }
 });
