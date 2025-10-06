@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PutCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { dynamoDb, TABLES } from '../config/dynamodb';
 import { User, UserProfile } from '../models/User';
+import { subscribeUserToAlerts } from '../services/notificationService';
 
 // Extend Express Request interface to include 'user'
 declare global {
@@ -80,6 +81,15 @@ export const register = async (req: Request, res: Response) => {
       Item: user,
       ConditionExpression: 'attribute_not_exists(userId)'
     }));
+
+    // Auto-subscribe user to financial alerts
+    try {
+      await subscribeUserToAlerts(user.email, user.phoneNumber);
+      console.log('✅ User auto-subscribed to financial alerts');
+    } catch (subscriptionError) {
+      console.error('⚠️ Failed to auto-subscribe user:', subscriptionError);
+      // Don't fail registration if subscription fails
+    }
 
     res.status(201).json({
       message: 'User profile created successfully',

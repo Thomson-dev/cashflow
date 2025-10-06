@@ -3,6 +3,7 @@ import { PutCommand, QueryCommand, DeleteCommand, GetCommand, UpdateCommand } fr
 import { dynamoDb, TABLES } from '../config/dynamodb';
 import { Transaction } from '../models/Transaction';
 import { randomUUID } from 'crypto';
+import { calculateExpenseRatio, shouldSendAlert, sendFinancialAlert } from '../services/notificationService';
 
 // Categorize transaction based on type or description
 function categorizeTransaction(description: string, amount: number, type: string): string {
@@ -86,6 +87,56 @@ export const createTransaction = async (req: Request & { user?: any }, res: Resp
     }));
 
     const currentBalance = userResult.Item?.startingBalance || 0;
+
+    // Check for financial alerts (only for expense transactions)
+    if (type === 'expense') {
+      try {
+        // Get last 30 days of transactions to calculate ratios
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        
+        const recentTransactions = await dynamoDb.send(new QueryCommand({
+          TableName: TABLES.TRANSACTIONS,
+          IndexName: 'UserIdIndex',
+          KeyConditionExpression: 'userId = :userId',
+          FilterExpression: '#date >= :startDate',
+          ExpressionAttributeNames: { '#date': 'date' },
+          ExpressionAttributeValues: {
+            ':userId': userId,
+            ':startDate': thirtyDaysAgo
+          }
+        }));
+
+        const transactions = recentTransactions.Items || [];
+        const monthlyIncome = transactions
+          .filter(t => t.type === 'income')
+          .reduce((sum, t) => sum + t.amount, 0);
+        const monthlyExpenses = transactions
+          .filter(t => t.type === 'expense')
+          .reduce((sum, t) => sum + t.amount, 0);
+
+        const expenseRatio = calculateExpenseRatio(monthlyIncome, monthlyExpenses);
+
+        // Send alert if needed
+        if (shouldSendAlert(expenseRatio)) {
+          const user = userResult.Item;
+          if (user) {
+            await sendFinancialAlert({
+              userId,
+              userEmail: user.email,
+              phoneNumber: user.phoneNumber,
+              businessName: user.businessName,
+              currentIncome: monthlyIncome,
+              currentExpenses: monthlyExpenses,
+              expenseRatio,
+              notificationPreference: user.notificationPreference || 'email'
+            });
+          }
+        }
+      } catch (notificationError) {
+        console.error('⚠️ Failed to send notification:', notificationError);
+        // Don't fail the transaction if notification fails
+      }
+    }
 
     res.status(201).json({
       message: 'Transaction added successfully',
