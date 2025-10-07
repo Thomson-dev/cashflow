@@ -52,6 +52,8 @@ CashFlow is a modern financial management API built for small to medium business
 
 ## 🏗️ Architecture
 
+![CashFlow Architecture](./generated-diagrams/diagram.png)
+
 ### **Technology Stack**
 - **Runtime**: Node.js 18 with TypeScript
 - **Framework**: Express.js with CORS support
