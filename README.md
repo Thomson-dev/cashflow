@@ -2,6 +2,13 @@
 
 A comprehensive business finance management platform with AI-powered insights, real-time notifications, and intelligent financial advisory features.
 
+## 🌐 Live Application & Frontend
+
+**🚀 [Live App](https://cashflow-ai-six.vercel.app/)** | **📱 [Frontend Repository](https://github.com/Sherifsani/cashflow-ai)**
+
+> **Try the live application**: [https://cashflow-ai-six.vercel.app/](https://cashflow-ai-six.vercel.app/)  
+> **Frontend source code**: [https://github.com/Sherifsani/cashflow-ai](https://github.com/Sherifsani/cashflow-ai)
+
 ## 🚀 Overview
 
 CashFlow is a modern financial management API built for small to medium businesses. It combines traditional financial tracking with cutting-edge AI technology to provide personalized insights, automated alerts, and intelligent financial advice.
